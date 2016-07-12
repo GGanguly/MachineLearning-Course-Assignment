@@ -1,0 +1,142 @@
+---
+title: "Practical Machine Learning - Project"
+author: "Gautam Ganguly"
+date: "July 11, 2016"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Overview
+The main goal of this project is to predict the manner in which 6 participants performed a exercise in multiple ways. This is the "classe" variable in the training set. You may use any of the other variables to predict with. You should create a report describing how you built your model, how you used cross validation, what you think the expected out of sample error is, and why you made the choices you did. You will also use your prediction model to predict 20 different test cases.
+
+## Background
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways.
+
+More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+
+## Data loading and exploratory analysis
+# Dataset overview
+The training data for this project are available here:
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data are available here:
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+The data for this project come from http://groupware.les.inf.puc-rio.br/har. 
+Full source:
+
+Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. "Qualitative Activity Recognition of Weight Lifting Exercises. Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13)". Stuttgart, Germany: ACM SIGCHI, 2013.
+
+The authors describe the dataset as follows:
+"Six young health participants were asked to perform one set of 10 repetitions of the Unilateral Dumbbell Biceps Curl in five different fashions: exactly according to the specification (Class A), throwing the elbows to the front (Class B), lifting the dumbbell only halfway (Class C), lowering the dumbbell only halfway (Class D) and throwing the hips to the front (Class E).
+
+Class A corresponds to the specified execution of the exercise, while the other 4 classes correspond to common mistakes. Participants were supervised by an experienced weight lifter to make sure the execution complied to the manner they were supposed to simulate. The exercises were performed by six male participants aged between 20-28 years, with little weight lifting experience. We made sure that all participants could easily simulate the mistakes in a safe and controlled manner by using a relatively light dumbbell (1.25kg)."
+
+##Environment setup for data reproduciblity
+The following R libraries need to be loaded into your work environment, and the random seed needs to be set to the value 12345 for this analysis.
+
+```{r}
+#If this libraries are not already available then you can use the install.packages command to install them
+#install.packages('caret')
+#install.packages('rpart')
+#install.packages('rpart.plot')
+#install.packages('RColorBrewer')
+#install.packages('RGtk2')
+#install.packages('rattle')
+#install.packages('randomForest')
+#install.packages('e1071', dependencies=TRUE)
+
+library(caret)
+library(rpart)
+library(rpart.plot)
+library(RColorBrewer)
+library(rattle)
+library(randomForest)
+library(gbm)
+```
+## Data Loading
+If you have not already done so then download the training and test datasets to the working directory using the url provided above.
+```{r}
+# set the URL for the download
+UrlTrain <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+UrlTest  <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+
+# download the datasets
+training <- read.csv(url(UrlTrain))
+testing  <- read.csv(url(UrlTest))
+```
+
+##Data Partioning 
+```{r}
+# create a partition with the training dataset ONLY.The testing dataset is not changed and will only be used for the quiz results generation.
+inTrain  <- createDataPartition(training$classe, p=0.7, list=FALSE)
+myTrainDs <- training[inTrain, ]
+myTestDs  <- training[-inTrain, ]
+dim(myTrainDs);dim(myTestDs)
+#Both created datasets have 160 variables. Those variables have plenty of NA, that can be removed with the cleaning procedures below. The Near Zero variance (NZV) variables are also removed and the ID variables as well.
+```
+
+##Tidying up the datasets
+```{r}
+#Cleaning NearZeroVariance Variables:
+NZV <- nearZeroVar(myTrainDs)
+myTrainDs <- myTrainDs[, -NZV]
+myTestDs  <- myTestDs[, -NZV]
+dim(myTrainDs);dim(myTestDs)
+#we have brought down the number of features to 106.
+
+#Removing NA 
+AllNA    <- sapply(myTrainDs, function(x) mean(is.na(x))) > 0.95
+myTrainDs <- myTrainDs[, AllNA==FALSE]
+myTestDs  <- myTestDs[, AllNA==FALSE]
+dim(myTrainDs);dim(myTestDs)
+#we have brought down the number of features to 59
+
+#Removing 1-5 columns which are basically identifier variables brings it down to 54.
+myTrainDs <- myTrainDs[, -(1:5)]
+myTestDs  <- myTestDs[, -(1:5)]
+dim(myTrainDs);dim(myTestDs)
+```
+##Prediction Model: ML Decision Tree Algorithm
+```{r}
+set.seed(12345)
+modelDT <- rpart(classe ~ ., data=myTrainDs, method="class")
+#plot
+fancyRpartPlot(modelDT)
+
+#Prediction based on the Decision Tree model
+predictionsDT <- predict(modelDT, myTestDs, type = "class")
+
+confusionMatrix(predictionsDT, myTestDs$classe)
+```
+##Prediction Model: ML Random Forests Algorithm
+```{r}
+set.seed(12345)
+modelRF <- randomForest(classe ~. , data=myTrainDs)
+predictionsRF <- predict(modelRF, myTestDs, type = "class")
+
+confusionMatrix(predictionsRF, myTestDs$classe)
+```
+##Prediction Model: ML Generalized Boosted Model
+```{r}
+set.seed(12345)
+controlGBM <- trainControl(method = "repeatedcv", number = 5, repeats = 1)
+modelGBM  <- train(classe ~ ., data=myTrainDs, method = "gbm",
+                    trControl = controlGBM, verbose = FALSE)
+modelGBM$finalModel
+
+predictsGBM <- predict(modelGBM,myTestDs)
+confusionMatrix(predictsGBM, myTestDs$classe)
+```
+
+
+```{r}
+#We find that Random Forest has a better accuracy rate(0.9947) compared to either GBM(0.9859) or Decision Tree(0.7386). We will apply it to the 20 test cases available in the test dataset.
+predictTEST <- predict(modelRF, newdata=testing)
+predictTEST
+```
+
